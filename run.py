@@ -1,290 +1,241 @@
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-import numpy as np
 import time
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 from pathlib import Path
-import plotly.graph_objects as go
-import plotly.express as px
-from scipy import stats
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import matplotlib.pyplot as plt
-import seaborn as sns
 
-class AdvancedMarketIntelligence:
+class MarketIntelligence:
     def __init__(self):
-        self.setup_browser()
-        self.metrics_cache = {}
-        self.historical_data = {}
-        
-    def setup_browser(self):
-        """Initialize headless browser for dynamic content"""
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        self.driver = webdriver.Chrome(options=chrome_options)
-        
-    def calculate_advanced_metrics(self, gigs_data):
-        """Calculate comprehensive market metrics"""
-        metrics = {
-            'basic_stats': self.calculate_basic_stats(gigs_data),
-            'market_dynamics': self.analyze_market_dynamics(gigs_data),
-            'competitor_analysis': self.analyze_competitors(gigs_data),
-            'price_analysis': self.analyze_pricing(gigs_data),
-            'quality_metrics': self.analyze_quality_metrics(gigs_data),
-            'market_trends': self.analyze_trends(gigs_data)
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/html,application/json',
+            'Accept-Language': 'en-US,en;q=0.9'
         }
-        return metrics
-    
-    def calculate_basic_stats(self, gigs_data):
-        """Calculate basic statistical metrics"""
-        prices = [float(gig['price'].replace('$', '')) for gig in gigs_data]
-        orders = [int(gig['orders'].replace('K', '000').replace('+', '')) for gig in gigs_data]
+        self.platforms = {
+            'fiverr': 'https://www.fiverr.com/search/gigs?query=',
+            'upwork': 'https://www.upwork.com/search/jobs/?q='
+        }
         
+    def safe_request(self, url):
+        """Makes safe requests with random delays"""
+        try:
+            delay = random.uniform(2, 4)
+            time.sleep(delay)
+            response = requests.get(url, headers=self.headers)
+            if response.status_code == 200:
+                return response.text
+            return None
+        except Exception as e:
+            print(f"Error accessing {url}: {e}")
+            return None
+
+    def analyze_competition(self, data):
+        """Analyzes competition level based on multiple factors"""
+        total_sellers = len(data)
+        total_orders = sum(int(gig.get('orders', '0').replace('K', '000').replace('+', '')) for gig in data)
+        avg_rating = sum(float(gig.get('rating', '0')) for gig in data) / total_sellers if total_sellers > 0 else 0
+        
+        # Competition metrics
+        if total_sellers == 0:
+            return {
+                'competition_level': 'Unknown',
+                'market_saturation': 0,
+                'avg_rating': 0
+            }
+            
+        saturation = min((total_sellers / 10) * 100, 100)  # Normalized to 100%
+        
+        if saturation < 30:
+            competition = 'Low'
+        elif saturation < 70:
+            competition = 'Medium'
+        else:
+            competition = 'High'
+            
         return {
-            'price_stats': {
-                'mean': np.mean(prices),
-                'median': np.median(prices),
-                'std': np.std(prices),
-                'quartiles': np.percentile(prices, [25, 50, 75])
-            },
-            'order_stats': {
-                'mean': np.mean(orders),
-                'median': np.median(orders),
-                'total': sum(orders)
+            'competition_level': competition,
+            'market_saturation': round(saturation, 2),
+            'avg_rating': round(avg_rating, 2)
+        }
+
+    def analyze_demand(self, data):
+        """Analyzes market demand based on orders and pricing"""
+        if not data:
+            return {
+                'demand_level': 'Unknown',
+                'total_orders': 0,
+                'avg_price': 0,
+                'price_range': {'min': 0, 'max': 0}
+            }
+            
+        total_orders = sum(int(gig.get('orders', '0').replace('K', '000').replace('+', '')) for gig in data)
+        prices = [float(gig.get('price', '0').replace('$', '')) for gig in data if gig.get('price')]
+        
+        if not prices:
+            return {
+                'demand_level': 'Unknown',
+                'total_orders': total_orders,
+                'avg_price': 0,
+                'price_range': {'min': 0, 'max': 0}
+            }
+            
+        avg_price = sum(prices) / len(prices)
+        
+        # Demand calculation
+        demand_score = min((total_orders / 1000) * 100, 100)  # Normalize to 100%
+        
+        if demand_score < 30:
+            demand = 'Low'
+        elif demand_score < 70:
+            demand = 'Medium'
+        else:
+            demand = 'High'
+            
+        return {
+            'demand_level': demand,
+            'demand_score': round(demand_score, 2),
+            'total_orders': total_orders,
+            'avg_price': round(avg_price, 2),
+            'price_range': {
+                'min': round(min(prices), 2),
+                'max': round(max(prices), 2)
             }
         }
-    
-    def analyze_market_dynamics(self, gigs_data):
-        """Analyze market dynamics and competition"""
-        seller_levels = [gig['level'] for gig in gigs_data]
-        total_sellers = len(gigs_data)
+
+    def scrape_fiverr_gigs(self, keyword):
+        """Scrapes top 10 Fiverr gigs with detailed metrics"""
+        url = f"{self.platforms['fiverr']}{keyword}"
+        html = self.safe_request(url)
+        if not html:
+            return []
+            
+        soup = BeautifulSoup(html, 'html.parser')
+        gigs = []
         
-        level_distribution = {
-            level: seller_levels.count(level) / total_sellers * 100
-            for level in set(seller_levels)
-        }
+        # Find top 10 gigs (adjust selectors as needed)
+        for gig in soup.find_all('div', {'class': 'gig-card'})[:10]:
+            try:
+                # Basic gig info
+                title = gig.find('h3').text.strip()
+                seller = gig.find('div', {'class': 'seller-name'}).text.strip()
+                rating = gig.find('span', {'class': 'rating'}).text.strip() or '0'
+                orders = gig.find('span', {'class': 'orders'}).text.strip() or '0'
+                price = gig.find('span', {'class': 'price'}).text.strip() or '$0'
+                
+                # Level and badges (if available)
+                level = gig.find('span', {'class': 'level'})
+                level = level.text.strip() if level else 'New Seller'
+                
+                gigs.append({
+                    'title': title,
+                    'seller': seller,
+                    'rating': rating,
+                    'orders': orders,
+                    'price': price,
+                    'level': level
+                })
+            except AttributeError:
+                continue
+                
+        return gigs
+
+    def generate_market_report(self, keyword):
+        """Generates comprehensive market report"""
+        print(f"\nAnalyzing market for: {keyword}")
         
-        # Calculate market concentration (HHI)
-        market_shares = [
-            (int(gig['orders'].replace('K', '000').replace('+', '')) / 
-             sum(int(g['orders'].replace('K', '000').replace('+', '')) for g in gigs_data)) * 100
-            for gig in gigs_data
-        ]
-        hhi = sum(share ** 2 for share in market_shares)
+        # Get gig data
+        gigs = self.scrape_fiverr_gigs(keyword)
+        if not gigs:
+            print(f"No data found for {keyword}")
+            return None
+            
+        # Analyze market
+        competition_metrics = self.analyze_competition(gigs)
+        demand_metrics = self.analyze_demand(gigs)
         
-        return {
-            'level_distribution': level_distribution,
-            'market_concentration': {
-                'hhi': hhi,
-                'concentration_level': 'High' if hhi > 2500 else 'Moderate' if hhi > 1500 else 'Low'
-            }
-        }
-    
-    def analyze_competitors(self, gigs_data):
-        """Detailed competitor analysis"""
-        response_times = [random.uniform(1, 24) for _ in gigs_data]  # Simulated data
-        ratings = [float(gig['rating']) for gig in gigs_data]
+        # Calculate opportunity score
+        opportunity_score = (
+            (100 - competition_metrics['market_saturation']) * 
+            demand_metrics['demand_score']
+        ) / 100
         
-        return {
-            'response_metrics': {
-                'avg_response_time': np.mean(response_times),
-                'fast_responders': sum(1 for t in response_times if t < 3)
-            },
-            'quality_metrics': {
-                'avg_rating': np.mean(ratings),
-                'rating_distribution': np.histogram(ratings, bins=5)[0].tolist()
-            }
-        }
-    
-    def analyze_pricing(self, gigs_data):
-        """Advanced price analysis"""
-        prices = [float(gig['price'].replace('$', '')) for gig in gigs_data]
-        
-        return {
-            'price_segments': {
-                'budget': sum(1 for p in prices if p < np.percentile(prices, 33)),
-                'mid_range': sum(1 for p in prices if np.percentile(prices, 33) <= p < np.percentile(prices, 66)),
-                'premium': sum(1 for p in prices if p >= np.percentile(prices, 66))
-            },
-            'price_elasticity': self.calculate_price_elasticity(gigs_data)
-        }
-    
-    def analyze_quality_metrics(self, gigs_data):
-        """Analysis of quality indicators"""
-        return {
-            'service_quality': self.calculate_service_quality(gigs_data),
-            'reliability_score': self.calculate_reliability_score(gigs_data)
-        }
-    
-    def analyze_trends(self, gigs_data):
-        """Market trend analysis"""
-        # Simulate historical data for trend analysis
-        dates = pd.date_range(end=datetime.now(), periods=30, freq='D')
-        trend_data = {
-            'dates': dates.strftime('%Y-%m-%d').tolist(),
-            'avg_prices': self.simulate_trend_data(30),
-            'total_orders': self.simulate_trend_data(30),
-            'active_sellers': self.simulate_trend_data(30)
-        }
-        return trend_data
-    
-    def generate_visualizations(self, metrics, keyword):
-        """Generate comprehensive market visualizations"""
-        Path('visualizations').mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
-        # Price Distribution
-        self.create_price_distribution_plot(metrics, keyword, timestamp)
-        
-        # Market Trends
-        self.create_market_trends_plot(metrics, keyword, timestamp)
-        
-        # Competitor Analysis
-        self.create_competitor_analysis_plot(metrics, keyword, timestamp)
-        
-        # Market Segments
-        self.create_market_segments_plot(metrics, keyword, timestamp)
-        
-        return f"visualizations/{keyword}_{timestamp}"
-    
-    def create_price_distribution_plot(self, metrics, keyword, timestamp):
-        """Create price distribution visualization"""
-        fig = go.Figure()
-        prices = metrics['basic_stats']['price_stats']
-        
-        fig.add_trace(go.Box(
-            y=prices['quartiles'],
-            name='Price Distribution',
-            boxpoints='all',
-            jitter=0.3,
-            pointpos=-1.8
-        ))
-        
-        fig.update_layout(
-            title=f'Price Distribution Analysis - {keyword}',
-            yaxis_title='Price ($)',
-            template='plotly_white'
-        )
-        
-        fig.write_html(f'visualizations/{keyword}_price_dist_{timestamp}.html')
-    
-    def create_market_trends_plot(self, metrics, keyword, timestamp):
-        """Create market trends visualization"""
-        trends = metrics['market_trends']
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=trends['dates'],
-            y=trends['avg_prices'],
-            name='Average Price',
-            mode='lines+markers'
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=trends['dates'],
-            y=trends['total_orders'],
-            name='Total Orders',
-            mode='lines+markers',
-            yaxis='y2'
-        ))
-        
-        fig.update_layout(
-            title=f'Market Trends Analysis - {keyword}',
-            yaxis=dict(title='Average Price ($)'),
-            yaxis2=dict(title='Total Orders', overlaying='y', side='right'),
-            template='plotly_white'
-        )
-        
-        fig.write_html(f'visualizations/{keyword}_trends_{timestamp}.html')
-    
-    def create_report(self, keyword, metrics, visualization_path):
-        """Generate comprehensive market report"""
         report = {
             'keyword': keyword,
             'analysis_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'market_metrics': metrics,
-            'visualization_path': visualization_path,
-            'market_summary': self.generate_market_summary(metrics),
-            'recommendations': self.generate_recommendations(metrics)
+            'market_summary': {
+                'competition': competition_metrics,
+                'demand': demand_metrics,
+                'opportunity_score': round(opportunity_score, 2)
+            },
+            'top_gigs': gigs
         }
         
         return report
-    
+
     def save_report(self, report):
-        """Save report in multiple formats"""
-        Path('reports').mkdir(exist_ok=True)
+        """Saves market analysis report"""
+        if not report:
+            return
+            
+        # Create reports directory
+        Path('market_reports').mkdir(exist_ok=True)
+        
+        # Generate filenames
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         keyword_slug = report['keyword'].replace(' ', '_').lower()
         
         # Save detailed JSON report
-        json_path = f'reports/{keyword_slug}_{timestamp}.json'
+        json_path = f'market_reports/{keyword_slug}_{timestamp}.json'
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, indent=2)
-        
-        # Create Excel report with multiple sheets
-        excel_path = f'reports/{keyword_slug}_{timestamp}.xlsx'
-        with pd.ExcelWriter(excel_path) as writer:
-            # Market Summary
-            pd.DataFrame([report['market_summary']]).to_excel(writer, sheet_name='Market Summary', index=False)
             
-            # Detailed Metrics
-            metrics_df = pd.DataFrame(report['market_metrics']['basic_stats'])
-            metrics_df.to_excel(writer, sheet_name='Detailed Metrics', index=True)
-            
-            # Recommendations
-            pd.DataFrame(report['recommendations']).to_excel(writer, sheet_name='Recommendations', index=False)
-        
-        return {
-            'json_report': json_path,
-            'excel_report': excel_path,
-            'visualizations': report['visualization_path']
+        # Create CSV summary
+        summary_data = {
+            'Keyword': [report['keyword']],
+            'Analysis Date': [report['analysis_date']],
+            'Competition Level': [report['market_summary']['competition']['competition_level']],
+            'Market Saturation': [f"{report['market_summary']['competition']['market_saturation']}%"],
+            'Demand Level': [report['market_summary']['demand']['demand_level']],
+            'Demand Score': [f"{report['market_summary']['demand']['demand_score']}%"],
+            'Average Price': [f"${report['market_summary']['demand']['avg_price']}"],
+            'Total Orders': [report['market_summary']['demand']['total_orders']],
+            'Opportunity Score': [f"{report['market_summary']['opportunity_score']}%"]
         }
+        
+        csv_path = f'market_reports/{keyword_slug}_{timestamp}.csv'
+        pd.DataFrame(summary_data).to_csv(csv_path, index=False)
+        
+        print(f"\nReports saved:")
+        print(f"Detailed report: {json_path}")
+        print(f"Summary: {csv_path}")
 
 def main():
-    analyzer = AdvancedMarketIntelligence()
+    analyzer = MarketIntelligence()
     
-    print("Advanced Market Intelligence System")
-    print("==================================")
-    
+    # Get keywords from user
+    print("Enter keywords to analyze (one per line, blank line to finish):")
+    keywords = []
     while True:
-        keyword = input("\nEnter keyword to analyze (or 'quit' to exit): ").strip()
-        if keyword.lower() == 'quit':
+        keyword = input().strip()
+        if not keyword:
             break
+        keywords.append(keyword)
+    
+    # Process each keyword
+    for keyword in keywords:
+        report = analyzer.generate_market_report(keyword)
+        if report:
+            analyzer.save_report(report)
             
-        print(f"\nAnalyzing market for: {keyword}")
-        print("This may take a few minutes...")
-        
-        try:
-            # Collect and analyze data
-            gigs_data = analyzer.scrape_market_data(keyword)
-            metrics = analyzer.calculate_advanced_metrics(gigs_data)
-            
-            # Generate visualizations
-            viz_path = analyzer.generate_visualizations(metrics, keyword)
-            
-            # Create and save report
-            report = analyzer.create_report(keyword, metrics, viz_path)
-            report_paths = analyzer.save_report(report)
-            
-            print("\nAnalysis complete!")
-            print("\nReport locations:")
-            print(f"Detailed report: {report_paths['json_report']}")
-            print(f"Excel report: {report_paths['excel_report']}")
-            print(f"Visualizations: {report_paths['visualizations']}")
-            
-        except Exception as e:
-            print(f"\nError analyzing {keyword}: {str(e)}")
-            print("Please try again with a different keyword.")
+            # Print quick insights
+            print(f"\nQuick Insights for {keyword}:")
+            print(f"Competition Level: {report['market_summary']['competition']['competition_level']}")
+            print(f"Demand Level: {report['market_summary']['demand']['demand_level']}")
+            print(f"Opportunity Score: {report['market_summary']['opportunity_score']}%")
+            print(f"Average Price: ${report['market_summary']['demand']['avg_price']}")
 
 if __name__ == "__main__":
     main()
